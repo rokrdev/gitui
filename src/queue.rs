@@ -80,6 +80,7 @@ pub enum AppTabs {
 	Files,
 	Stashing,
 	Stashlist,
+	Worktrees,
 }
 
 ///
@@ -152,6 +153,8 @@ pub enum InternalEvent {
 	CreateRemote,
 	///
 	OpenRepo { path: PathBuf },
+	/// Open an already resolved repository path.
+	OpenRepoPath { repo: asyncgit::sync::RepoPath },
 	///
 	OpenResetPopup(CommitId),
 	///

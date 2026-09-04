@@ -203,10 +203,11 @@ fn main() -> Result<()> {
 		)?;
 
 		match quit_state {
-			QuitState::OpenSubmodule(p) => {
+			QuitState::OpenRepo(p) => {
 				args = CliArgs {
 					repo_path: p,
 					select_file: None,
+					revision: None,
 					theme: args.theme,
 					notify_watcher: args.notify_watcher,
 					key_bindings_path: args.key_bindings_path,

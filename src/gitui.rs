@@ -196,6 +196,17 @@ impl Gitui {
 	}
 
 	#[cfg(test)]
+	fn drain_pending_git(&mut self) {
+		while self.app.any_work_pending() {
+			let event = self
+				.rx_git
+				.recv_timeout(std::time::Duration::from_secs(1))
+				.unwrap();
+			self.update_async(crate::AsyncNotification::Git(event));
+		}
+	}
+
+	#[cfg(test)]
 	fn update(&mut self) {
 		self.app.update().unwrap();
 	}
@@ -225,8 +236,8 @@ mod tests {
 			settings.add_filter(r" *\[…\]\S+-insta/?", "[TEMP_FILE]");
 			// Linux Temp Folder
 			settings.add_filter(r" */tmp/\.tmp\S+-insta/", "[TEMP_FILE]");
-			// Commit ids that follow a vertical bar
-			settings.add_filter(r"│[a-z0-9]{7} ", "│[AAAAA] ");
+			// Short commit ids are nondeterministic in temporary repositories.
+			settings.add_filter(r"[a-f0-9]{7}", "[AAAAA]");
 			let _bound = settings.bind_to_scope();
 		}
 	}
@@ -240,6 +251,7 @@ mod tests {
 		let cliargs = CliArgs {
 			theme: PathBuf::from("theme.ron"),
 			select_file: None,
+			revision: None,
 			repo_path: path,
 			notify_watcher: false,
 			key_bindings_path: None,
@@ -286,5 +298,48 @@ mod tests {
 			"app_log_tab_showing_one_commit",
 			terminal.backend()
 		);
+
+		gitui.input_event(
+			key_config.keys.tab_worktrees.code,
+			key_config.keys.tab_worktrees.modifiers,
+		);
+		gitui.draw(&mut terminal).unwrap();
+
+		assert_snapshot!("app_worktrees_tab", terminal.backend());
+		assert_eq!(gitui.app.current_tab(), 5);
+
+		gitui.input_event(
+			key_config.keys.tab_status.code,
+			key_config.keys.tab_status.modifiers,
+		);
+		assert_eq!(gitui.app.current_tab(), 0);
+		gitui.drain_pending_git();
+	}
+
+	#[test]
+	fn gitui_starts_with_revision_open() {
+		let (temp_dir, _repo) = repo_init_suffix(Some("-revision"));
+		let repo_path: RepoPath =
+			temp_dir.path().to_str().unwrap().into();
+		let revision =
+			asyncgit::sync::get_head(&repo_path).unwrap().to_string();
+		let cliargs = CliArgs {
+			theme: PathBuf::from("theme.ron"),
+			select_file: None,
+			revision: Some(revision),
+			repo_path,
+			notify_watcher: false,
+			key_bindings_path: None,
+			key_symbols_path: None,
+		};
+
+		let theme = Theme::init(&PathBuf::new());
+		let key_config = KeyConfig::default();
+		let mut gitui =
+			Gitui::new(cliargs, theme, &key_config, Updater::Ticker)
+				.unwrap();
+
+		assert!(gitui.app.is_inspecting_commit());
+		gitui.drain_pending_git();
 	}
 }

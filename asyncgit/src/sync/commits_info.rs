@@ -50,7 +50,8 @@ impl CommitId {
 		let repo = repo(repo_path)?;
 
 		let commit_obj = repo.revparse_single(revision)?;
-		Ok(commit_obj.id().into())
+		let commit_id = commit_obj.peel_to_commit()?.id().into();
+		Ok(commit_id)
 	}
 
 	/// Tries to convert a &str representation of a commit id into

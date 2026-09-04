@@ -91,6 +91,12 @@ pub fn tab_stashes(key_config: &SharedKeyConfig) -> String {
 		key_config.get_hint(key_config.keys.tab_stashes)
 	)
 }
+pub fn tab_worktrees(key_config: &SharedKeyConfig) -> String {
+	format!(
+		"Worktrees [{}]",
+		key_config.get_hint(key_config.keys.tab_worktrees)
+	)
+}
 pub fn tab_divider(_key_config: &SharedKeyConfig) -> String {
 	" | ".to_string()
 }
@@ -577,14 +583,27 @@ pub mod commands {
 	) -> CommandText {
 		CommandText::new(
 			format!(
-				"Tab [{}{}{}{}{}]",
+				"Tab [{}{}{}{}{}{}]",
 				key_config.get_hint(key_config.keys.tab_status),
 				key_config.get_hint(key_config.keys.tab_log),
 				key_config.get_hint(key_config.keys.tab_files),
 				key_config.get_hint(key_config.keys.tab_stashing),
 				key_config.get_hint(key_config.keys.tab_stashes),
+				key_config.get_hint(key_config.keys.tab_worktrees),
 			),
 			"switch top level tabs directly",
+			CMD_GROUP_GENERAL,
+		)
+	}
+	pub fn open_worktree(
+		key_config: &SharedKeyConfig,
+	) -> CommandText {
+		CommandText::new(
+			format!(
+				"Open [{}]",
+				key_config.get_hint(key_config.keys.enter),
+			),
+			"open selected worktree",
 			CMD_GROUP_GENERAL,
 		)
 	}

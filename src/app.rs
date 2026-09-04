@@ -15,12 +15,13 @@ use crate::{
 		CheckoutOptionPopup, CommitPopup, CompareCommitsPopup,
 		ConfirmPopup, CreateBranchPopup, CreateRemotePopup,
 		ExternalEditorPopup, FetchPopup, FileRevlogPopup,
-		FuzzyFindPopup, GotoLinePopup, HelpPopup, InspectCommitPopup,
-		LogSearchPopupPopup, MsgPopup, OptionsPopup, PullPopup,
-		PushPopup, PushTagsPopup, RemoteListPopup, RenameBranchPopup,
-		RenameRemotePopup, ResetPopup, RevisionFilesPopup,
-		StashMsgPopup, SubmodulesListPopup, TagCommitPopup,
-		TagListPopup, UpdateRemoteUrlPopup,
+		FuzzyFindPopup, GotoLinePopup, HelpPopup, InspectCommitOpen,
+		InspectCommitPopup, LogSearchPopupPopup, MsgPopup,
+		OptionsPopup, PullPopup, PushPopup, PushTagsPopup,
+		RemoteListPopup, RenameBranchPopup, RenameRemotePopup,
+		ResetPopup, RevisionFilesPopup, StashMsgPopup,
+		SubmodulesListPopup, TagCommitPopup, TagListPopup,
+		UpdateRemoteUrlPopup,
 	},
 	queue::{
 		Action, AppTabs, InternalEvent, NeedsUpdate, Queue,
@@ -28,7 +29,9 @@ use crate::{
 	},
 	setup_popups,
 	strings::{self, ellipsis_trim_start, order},
-	tabs::{FilesTab, Revlog, StashList, Stashing, Status},
+	tabs::{
+		FilesTab, Revlog, StashList, Stashing, Status, Worktrees,
+	},
 	try_or_popup,
 	ui::style::{SharedTheme, Theme},
 	AsyncAppNotification, AsyncNotification,
@@ -63,7 +66,7 @@ use unicode_width::UnicodeWidthStr;
 pub enum QuitState {
 	None,
 	Close,
-	OpenSubmodule(RepoPath),
+	OpenRepo(RepoPath),
 }
 
 /// the main app type
@@ -106,6 +109,7 @@ pub struct App {
 	status_tab: Status,
 	stashing_tab: Stashing,
 	stashlist_tab: StashList,
+	worktrees_tab: Worktrees,
 	files_tab: FilesTab,
 	queue: Queue,
 	theme: SharedTheme,
@@ -175,6 +179,16 @@ impl App {
 			sender_git,
 			sender_app,
 		};
+		let initial_commit = cliargs
+			.revision
+			.as_deref()
+			.map(|revision| {
+				sync::CommitId::from_revision(
+					&env.repo.borrow(),
+					revision,
+				)
+			})
+			.transpose()?;
 
 		let mut select_file: Option<PathBuf> = None;
 		let tab = if let Some(file) = cliargs.select_file {
@@ -234,6 +248,7 @@ impl App {
 			status_tab: Status::new(&env),
 			stashing_tab: Stashing::new(&env),
 			stashlist_tab: StashList::new(&env),
+			worktrees_tab: Worktrees::new(&env),
 			files_tab: FilesTab::new(&env, select_file),
 			checkout_option_popup: CheckoutOptionPopup::new(&env),
 			goto_line_popup: GotoLinePopup::new(&env),
@@ -250,6 +265,10 @@ impl App {
 		};
 
 		app.set_tab(tab)?;
+		if let Some(commit_id) = initial_commit {
+			app.inspect_commit_popup
+				.open(InspectCommitOpen::new(commit_id))?;
+		}
 
 		Ok(app)
 	}
@@ -293,6 +312,7 @@ impl App {
 				2 => self.files_tab.draw(f, chunks_main[1])?,
 				3 => self.stashing_tab.draw(f, chunks_main[1])?,
 				4 => self.stashlist_tab.draw(f, chunks_main[1])?,
+				5 => self.worktrees_tab.draw(f, chunks_main[1])?,
 				_ => bail!("unknown tab"),
 			}
 		}
@@ -345,6 +365,9 @@ impl App {
 				) || key_match(
 					k,
 					self.key_config.keys.tab_stashes,
+				) || key_match(
+					k,
+					self.key_config.keys.tab_worktrees,
 				) {
 					self.switch_tab(k)?;
 					NeedsUpdate::COMMANDS
@@ -409,6 +432,7 @@ impl App {
 		self.files_tab.update()?;
 		self.stashing_tab.update()?;
 		self.stashlist_tab.update()?;
+		self.worktrees_tab.update()?;
 		self.reset_popup.update()?;
 
 		self.update_commands();
@@ -488,6 +512,16 @@ impl App {
 			false
 		}
 	}
+
+	#[cfg(test)]
+	pub fn is_inspecting_commit(&self) -> bool {
+		self.inspect_commit_popup.is_visible()
+	}
+
+	#[cfg(test)]
+	pub const fn current_tab(&self) -> usize {
+		self.tab
+	}
 }
 
 // private impls
@@ -530,7 +564,8 @@ impl App {
 			status_tab,
 			files_tab,
 			stashing_tab,
-			stashlist_tab
+			stashlist_tab,
+			worktrees_tab
 		]
 	);
 
@@ -601,6 +636,7 @@ impl App {
 			&mut self.files_tab,
 			&mut self.stashing_tab,
 			&mut self.stashlist_tab,
+			&mut self.worktrees_tab,
 		]
 	}
 
@@ -626,6 +662,8 @@ impl App {
 			self.switch_to_tab(&AppTabs::Stashing)?;
 		} else if key_match(k, self.key_config.keys.tab_stashes) {
 			self.switch_to_tab(&AppTabs::Stashlist)?;
+		} else if key_match(k, self.key_config.keys.tab_worktrees) {
+			self.switch_to_tab(&AppTabs::Worktrees)?;
 		}
 
 		Ok(())
@@ -654,6 +692,7 @@ impl App {
 			AppTabs::Files => self.set_tab(2)?,
 			AppTabs::Stashing => self.set_tab(3)?,
 			AppTabs::Stashlist => self.set_tab(4)?,
+			AppTabs::Worktrees => self.set_tab(5)?,
 		}
 		Ok(())
 	}
@@ -920,7 +959,10 @@ impl App {
 				);
 				//TODO: validate this is a valid repo first, so we can show proper error otherwise
 				self.do_quit =
-					QuitState::OpenSubmodule(submodule_repo_path);
+					QuitState::OpenRepo(submodule_repo_path);
+			}
+			InternalEvent::OpenRepoPath { repo } => {
+				self.do_quit = QuitState::OpenRepo(repo);
 			}
 			InternalEvent::OpenResetPopup(id) => {
 				self.reset_popup.open(id)?;
@@ -1173,6 +1215,7 @@ impl App {
 			Span::raw(strings::tab_files(&self.key_config)),
 			Span::raw(strings::tab_stashing(&self.key_config)),
 			Span::raw(strings::tab_stashes(&self.key_config)),
+			Span::raw(strings::tab_worktrees(&self.key_config)),
 		];
 		let divider = strings::tab_divider(&self.key_config);
 

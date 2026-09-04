@@ -22,6 +22,7 @@ const GIT_DIR_FLAG_ID: &str = "directory";
 const WATCHER_FLAG_ID: &str = "watcher";
 const KEY_BINDINGS_FLAG_ID: &str = "key_bindings";
 const KEY_SYMBOLS_FLAG_ID: &str = "key_symbols";
+const REVISION_ARG_ID: &str = "revision";
 const DEFAULT_THEME: &str = "theme.ron";
 const DEFAULT_GIT_DIR: &str = ".";
 
@@ -29,6 +30,7 @@ const DEFAULT_GIT_DIR: &str = ".";
 pub struct CliArgs {
 	pub theme: PathBuf,
 	pub select_file: Option<PathBuf>,
+	pub revision: Option<String>,
 	pub repo_path: RepoPath,
 	pub notify_watcher: bool,
 	pub key_bindings_path: Option<PathBuf>,
@@ -61,6 +63,8 @@ pub fn process_cmdline() -> Result<CliArgs> {
 	let select_file = arg_matches
 		.get_one::<String>(FILE_FLAG_ID)
 		.map(PathBuf::from);
+	let revision =
+		arg_matches.get_one::<String>(REVISION_ARG_ID).cloned();
 
 	let repo_path = if let Some(w) = workdir {
 		RepoPath::Workdir { gitdir, workdir: w }
@@ -95,6 +99,7 @@ pub fn process_cmdline() -> Result<CliArgs> {
 	Ok(CliArgs {
 		theme,
 		select_file,
+		revision,
 		repo_path,
 		notify_watcher,
 		key_bindings_path,
@@ -118,7 +123,14 @@ fn app() -> ClapApp {
 {all-args}{after-help}
 		",
 		)
-			.arg(
+		.arg(
+			Arg::new(REVISION_ARG_ID)
+				.help("Open the changes introduced by a commit")
+				.value_name("REVISION")
+				.index(1)
+				.num_args(1),
+		)
+		.arg(
 			Arg::new(KEY_BINDINGS_FLAG_ID)
 				.help("Use a custom keybindings file")
 				.short('k')
@@ -241,4 +253,18 @@ pub fn get_app_config_path() -> Result<PathBuf> {
 #[test]
 fn verify_app() {
 	app().debug_assert();
+}
+
+#[test]
+fn accepts_revision_as_positional_argument() {
+	let matches = app()
+		.try_get_matches_from(["gitui", "abc1234"])
+		.expect("revision should parse");
+
+	assert_eq!(
+		matches
+			.get_one::<String>(REVISION_ARG_ID)
+			.map(String::as_str),
+		Some("abc1234")
+	);
 }
