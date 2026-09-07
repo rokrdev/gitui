@@ -12,6 +12,9 @@ pub struct WorktreeInfo {
 	pub branch: Option<String>,
 	/// Commit currently checked out in the worktree.
 	pub head: Option<CommitId>,
+	/// Unix timestamp of the HEAD commit, used to order worktrees by
+	/// recency. `None` when there is no checked-out commit.
+	pub head_time: Option<i64>,
 	/// Whether this is the worktree `GitUI` currently has open.
 	pub is_current: bool,
 	/// Whether the worktree is locked against pruning.
@@ -57,6 +60,15 @@ pub fn get_worktrees(
 		));
 	}
 
+	// Most recently used worktree first: sort by HEAD commit time,
+	// descending. Worktrees without a HEAD commit sort last. The sort is
+	// stable, so ties keep the main-then-linked registration order.
+	result.sort_by(|a, b| {
+		let ta = a.head_time.unwrap_or(i64::MIN);
+		let tb = b.head_time.unwrap_or(i64::MIN);
+		tb.cmp(&ta)
+	});
+
 	Ok(result)
 }
 
@@ -66,21 +78,22 @@ fn worktree_info(
 	is_valid: bool,
 	current_path: Option<&Path>,
 ) -> WorktreeInfo {
-	let (branch, head) =
-		Repository::open(&path).map_or((None, None), |repo| {
-			repo.head().map_or((None, None), |head| {
+	let (branch, head, head_time) =
+		Repository::open(&path).map_or((None, None, None), |repo| {
+			repo.head().map_or((None, None, None), |head| {
 				let branch = head
 					.is_branch()
 					.then(|| {
 						head.shorthand().ok().map(str::to_string)
 					})
 					.flatten();
-				let commit = head
-					.peel_to_commit()
-					.ok()
-					.map(|commit| CommitId::new(commit.id()));
+				let commit = head.peel_to_commit().ok();
+				let head_time =
+					commit.as_ref().map(|c| c.time().seconds());
+				let commit =
+					commit.map(|c| CommitId::new(c.id()));
 
-				(branch, commit)
+				(branch, commit, head_time)
 			})
 		});
 
@@ -90,6 +103,7 @@ fn worktree_info(
 		path,
 		branch,
 		head,
+		head_time,
 		is_locked,
 		is_valid,
 	}

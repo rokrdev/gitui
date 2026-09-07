@@ -292,6 +292,7 @@ mod tests {
 			path: linked_path.clone(),
 			branch: Some("feature".to_string()),
 			head: None,
+			head_time: None,
 			is_current: false,
 			is_locked: false,
 			is_valid: true,
